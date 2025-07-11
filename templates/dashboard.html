@@ -1,207 +1,270 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Descargador Moodle UNAHUR</title>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #f4f7f6; font-family: Arial, sans-serif; }
-        .container { margin-top: 20px; }
-        .course-card {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
-            margin-bottom: 20px;
-            padding: 20px;
-        }
-        .course-title {
-            font-size: 1.5em;
-            color: #333;
-            margin-bottom: 15px;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
-        }
-        .document-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        .document-item:last-child {
-            border-bottom: none;
-        }
-        .document-name {
-            font-size: 1em;
-            color: #555;
-        }
-        .document-type {
-            font-size: 0.8em;
-            background-color: #007bff;
-            color: white;
-            padding: 3px 8px;
-            border-radius: 4px;
-            margin-left: 10px;
-        }
-        .no-documents {
-            color: #777;
-            font-style: italic;
-        }
-        .flash-messages .alert { margin-top:15px; }
-        .sticky-header {
-            position: sticky;
-            top: 0;
-            background-color: #ffffff;
-            z-index: 1000;
-            padding: 10px 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .sticky-header .container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-    </style>
-</head>
-<body>
-    <div class="sticky-header">
-        <div class="container">
-            <h1>Documentos de Cursos</h1>
-            <div>
-                <button id="downloadSelectedBtn" class="btn btn-success mr-2">Descargar Seleccionados</button>
-                <a href="{{ url_for('logout') }}" class="btn btn-danger">Cerrar Sesión</a>
-            </div>
-        </div>
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Descargador Moodle{% endblock %}
+
+{% block extra_head %}
+<style>
+    .course-card {
+        background-color: #fdfdff; /* Un blanco ligeramente diferente para las tarjetas */
+        border: 1px solid #e0e0e0; /* Borde sutil */
+        border-radius: 6px;
+        margin-bottom: 25px;
+        padding: 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .course-title-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #eee;
+    }
+    .course-title {
+        font-size: 1.6em; /* Un poco más grande */
+        color: #0056b3; /* Azul oscuro */
+        margin-bottom: 0; /* Quitar margen inferior si está en flex */
+    }
+    .document-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 5px; /* Más padding vertical */
+        border-bottom: 1px solid #f0f0f0;
+        transition: background-color 0.2s ease-in-out;
+    }
+    .document-item:last-child {
+        border-bottom: none;
+    }
+    .document-item:hover {
+        background-color: #f8f9fa; /* Gris claro al pasar el mouse */
+    }
+    .document-name {
+        font-size: 1em;
+        color: #333;
+    }
+    .document-type {
+        font-size: 0.8em;
+        background-color: #6c757d; /* Gris medio */
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        margin-left: 10px;
+        min-width: 50px; /* Ancho mínimo para alinear */
+        text-align: center;
+    }
+    .no-documents {
+        color: #777;
+        font-style: italic;
+        padding: 10px 0;
+    }
+    .sticky-controls {
+        position: sticky;
+        top: 70px; /* Debajo de la navbar fija */
+        background-color: #ffffff;
+        padding: 15px;
+        margin-bottom: 20px; /* Separar de la primera tarjeta de curso */
+        z-index: 999; /* Por debajo de la navbar pero encima del contenido */
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .checkbox-label {
+        font-weight: normal;
+        margin-left: 5px;
+    }
+    .custom-control-label::before, .custom-control-label::after {
+        top: .1rem; /* Ajustar alineación vertical de checkboxes */
+    }
+    #selectAllGlobalLabel, .selectAllCourseLabel {
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2><i class="fas fa-book-open"></i> Dashboard de Cursos y Documentos</h2>
+
+{% if courses_with_docs is none and error_ocurrido %}
+    <div class="alert alert-danger">
+        <strong>Error Crítico:</strong> No se pudo obtener la lista de cursos. Verifica la URL de Moodle y tu conexión, o revisa los logs del servidor para más detalles.
+        Intenta <a href="{{ url_for('reset_config') }}" class="alert-link">configurar la URL de Moodle nuevamente</a>.
     </div>
-
-    <div class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="flash-messages">
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
+{% elif courses_with_docs is not none %}
+    <form id="downloadForm" method="POST" action="{{ url_for('handle_download') }}">
+        <div class="sticky-controls">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    {% if courses_with_docs %}
+                    <div class="custom-control custom-checkbox d-inline-block mr-3">
+                        <input type="checkbox" class="custom-control-input" id="selectAllGlobal">
+                        <label class="custom-control-label" for="selectAllGlobal" id="selectAllGlobalLabel">Seleccionar Todo (Global)</label>
                     </div>
-                {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
-
-        <form id="downloadForm" method="POST" action="{{ url_for('handle_download') }}">
-            {% if courses_with_docs %}
-                <div class="mb-3">
-                    <input type="checkbox" id="selectAllGlobal" class="mr-1">
-                    <label for="selectAllGlobal"><strong>Seleccionar todos los documentos de todos los cursos</strong></label>
-                </div>
-
-                {% for course_name, documents in courses_with_docs %}
-                <div class="course-card">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h3 class="course-title">{{ course_name }}</h3>
-                        {% if documents %}
-                        <div>
-                            <input type="checkbox" id="selectAll-{{ loop.index }}" class="selectAllCourse mr-1" data-course-index="{{ loop.index }}">
-                            <label for="selectAll-{{ loop.index }}">Seleccionar todo en este curso</label>
-                        </div>
-                        {% endif %}
-                    </div>
-
-                    {% if documents %}
-                        <ul class="list-unstyled">
-                            {% for doc in documents %}
-                            <li class="document-item course-{{ loop.parent.loop.index }}-doc">
-                                <div>
-                                    <input type="checkbox" name="selected_docs" value="{{ doc.url }}|{{ doc.name }}|{{ doc.type }}|{{ course_name }}" class="doc-checkbox"
-                                           data-course-index="{{ loop.parent.loop.index }}">
-                                    <span class="document-name ml-2">{{ doc.name }}</span>
-                                </div>
-                                <span class="document-type">{{ doc.type }}</span>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="no-documents">No se encontraron documentos en este curso.</p>
                     {% endif %}
                 </div>
-                {% endfor %}
-            {% elif courses_with_docs is none %}
-                <p>Error al cargar cursos. Intenta recargar la página o iniciar sesión nuevamente.</p>
+                <button type="submit" id="downloadSelectedBtn" class="btn btn-success btn-lg">
+                    <i class="fas fa-download"></i> Descargar Seleccionados <span id="selectedCount">(0)</span>
+                </button>
+            </div>
+        </div>
+
+        {% if not courses_with_docs %}
+            <div class="alert alert-info text-center">No se encontraron cursos o no hay documentos disponibles en los cursos recuperados.</div>
+        {% endif %}
+
+        {% for course_name, documents in courses_with_docs %}
+        <div class="course-card">
+            <div class="course-title-container">
+                <h3 class="course-title"><i class="fas fa-folder-open text-warning mr-2"></i>{{ course_name }}</h3>
+                {% if documents %}
+                <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input selectAllCourse" id="selectAll-{{ loop.index }}" data-course-index="{{ loop.index }}">
+                    <label class="custom-control-label selectAllCourseLabel" for="selectAll-{{ loop.index }}">Seleccionar todo en este curso</label>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if documents %}
+                <ul class="list-unstyled">
+                    {% for doc in documents %}
+                    <li class="document-item course-{{ loop.parent.loop.index }}-doc">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" name="selected_docs"
+                                   value="{{ doc.url }}|{{ doc.name }}|{{ doc.type }}|{{ course_name }}"
+                                   class="custom-control-input doc-checkbox"
+                                   id="doc-{{ loop.parent.loop.index }}-{{ loop.index }}"
+                                   data-course-index="{{ loop.parent.loop.index }}">
+                            <label class="custom-control-label checkbox-label document-name" for="doc-{{ loop.parent.loop.index }}-{{ loop.index }}">{{ doc.name }}</label>
+                        </div>
+                        <span class="document-type">{{ doc.type if doc.type else 'archivo' }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
             {% else %}
-                <p>No hay cursos o documentos para mostrar.</p>
+                <p class="no-documents">No se encontraron documentos descargables en este curso.</p>
             {% endif %}
-        </form>
-    </div>
+        </div>
+        {% endfor %}
+    </form>
+{% else %}
+     <div class="alert alert-info text-center">Cargando información de cursos... Si este mensaje persiste, intenta recargar o verifica la URL de Moodle.</div>
+{% endif %}
+{% endblock %}
 
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
-            const downloadForm = document.getElementById('downloadForm');
-            const selectAllGlobalCheckbox = document.getElementById('selectAllGlobal');
-            const courseSelectAllCheckboxes = document.querySelectorAll('.selectAllCourse');
-            const individualDocCheckboxes = document.querySelectorAll('.doc-checkbox');
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const downloadForm = document.getElementById('downloadForm');
+    const selectAllGlobalCheckbox = document.getElementById('selectAllGlobal');
+    const courseSelectAllCheckboxes = document.querySelectorAll('.selectAllCourse');
+    const individualDocCheckboxes = document.querySelectorAll('.doc-checkbox');
+    const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
+    const selectedCountSpan = document.getElementById('selectedCount');
 
-            if (downloadSelectedBtn) {
-                downloadSelectedBtn.addEventListener('click', function () {
-                    // Validar que al menos un checkbox esté seleccionado
-                    const anySelected = Array.from(individualDocCheckboxes).some(cb => cb.checked);
-                    if (!anySelected) {
-                        alert('Por favor, selecciona al menos un documento para descargar.');
-                        return;
-                    }
-                    if (downloadForm) {
-                        downloadForm.submit();
-                    }
-                });
+    function updateSelectedCount() {
+        const count = document.querySelectorAll('.doc-checkbox:checked').length;
+        if (selectedCountSpan) {
+            selectedCountSpan.textContent = `(${count})`;
+        }
+        if (downloadSelectedBtn) {
+            downloadSelectedBtn.disabled = count === 0;
+        }
+    }
+
+    if (downloadSelectedBtn) {
+        downloadSelectedBtn.addEventListener('click', function (event) {
+            if (document.querySelectorAll('.doc-checkbox:checked').length === 0) {
+                event.preventDefault(); // Detener el envío del formulario
+                alert('Por favor, selecciona al menos un documento para descargar.');
+                return;
             }
+            // Cambiar texto del botón a "Descargando..." y deshabilitar
+            downloadSelectedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Descargando...';
+            downloadSelectedBtn.disabled = true;
 
-            if (selectAllGlobalCheckbox) {
-                selectAllGlobalCheckbox.addEventListener('change', function() {
-                    individualDocCheckboxes.forEach(checkbox => {
-                        checkbox.checked = this.checked;
-                    });
-                    courseSelectAllCheckboxes.forEach(checkbox => {
-                        checkbox.checked = this.checked;
-                    });
-                });
-            }
+            // Permitir que el formulario se envíe. Si hay un error de flash, el botón se reactivará
+            // al recargar la página. Si la descarga es exitosa, el navegador maneja el archivo.
+            // Para una mejor UX con descargas largas, se necesitaría AJAX y feedback más complejo.
+        });
+    }
 
-            courseSelectAllCheckboxes.forEach(headerCheckbox => {
-                headerCheckbox.addEventListener('change', function() {
-                    const courseIndex = this.getAttribute('data-course-index');
-                    document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`).forEach(checkbox => {
-                        checkbox.checked = this.checked;
-                    });
-                    updateGlobalSelectAll();
-                });
-            });
-
+    if (selectAllGlobalCheckbox) {
+        selectAllGlobalCheckbox.addEventListener('change', function() {
+            const isChecked = this.checked;
             individualDocCheckboxes.forEach(checkbox => {
-                checkbox.addEventListener('change', function() {
-                    const courseIndex = this.getAttribute('data-course-index');
-                    const courseCheckboxes = document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`);
-                    const courseSelectAll = document.querySelector(`.selectAllCourse[data-course-index="${courseIndex}"]`);
-
-                    if (courseSelectAll) {
-                         courseSelectAll.checked = Array.from(courseCheckboxes).every(cb => cb.checked);
-                    }
-                    updateGlobalSelectAll();
-                });
+                checkbox.checked = isChecked;
             });
+            courseSelectAllCheckboxes.forEach(checkbox => {
+                checkbox.checked = isChecked;
+            });
+            updateSelectedCount();
+        });
+    }
 
-            function updateGlobalSelectAll() {
-                if (selectAllGlobalCheckbox) {
-                    selectAllGlobalCheckbox.checked = Array.from(individualDocCheckboxes).every(cb => cb.checked);
-                }
+    courseSelectAllCheckboxes.forEach(headerCheckbox => {
+        headerCheckbox.addEventListener('change', function() {
+            const courseIndex = this.getAttribute('data-course-index');
+            const isChecked = this.checked;
+            document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`).forEach(checkbox => {
+                checkbox.checked = isChecked;
+            });
+            updateGlobalSelectAllState();
+            updateSelectedCount();
+        });
+    });
+
+    individualDocCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const courseIndex = this.getAttribute('data-course-index');
+            const courseCheckboxesInThisCourse = document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`);
+            const courseSelectAll = document.querySelector(`.selectAllCourse[data-course-index="${courseIndex}"]`);
+
+            if (courseSelectAll) {
+                courseSelectAll.checked = Array.from(courseCheckboxesInThisCourse).every(cb => cb.checked);
+            }
+            updateGlobalSelectAllState();
+            updateSelectedCount();
+        });
+    });
+
+    function updateGlobalSelectAllState() {
+        if (selectAllGlobalCheckbox && individualDocCheckboxes.length > 0) {
+            selectAllGlobalCheckbox.checked = Array.from(individualDocCheckboxes).every(cb => cb.checked);
+        } else if (selectAllGlobalCheckbox) {
+            selectAllGlobalCheckbox.checked = false; // No hay checkboxes para marcar como todos seleccionados
+        }
+    }
+
+    // Inicializar estado de botones y conteo
+    updateSelectedCount();
+    if (individualDocCheckboxes.length > 0) { // Solo actualizar selectores globales si hay documentos
+        updateGlobalSelectAllState();
+        // Asegurar que los checkboxes "seleccionar todo por curso" reflejen el estado inicial
+        courseSelectAllCheckboxes.forEach(headerCheckbox => {
+            const courseIndex = headerCheckbox.getAttribute('data-course-index');
+            const courseCheckboxesInThisCourse = document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`);
+            if (courseCheckboxesInThisCourse.length > 0) {
+                 headerCheckbox.checked = Array.from(courseCheckboxesInThisCourse).every(cb => cb.checked);
+            } else {
+                headerCheckbox.checked = false; // No hay documentos en este curso para seleccionar
+                headerCheckbox.disabled = true; // Deshabilitar si no hay documentos
             }
         });
-    </script>
-</body>
-</html>
+    } else if (selectAllGlobalCheckbox) { // Si no hay documentos en absoluto
+        selectAllGlobalCheckbox.disabled = true;
+    }
+
+
+    // Si hay mensajes flash de error después de un intento de descarga, reactivar el botón.
+    // Esto es una solución simple. Una mejor UX requeriría AJAX.
+    window.addEventListener('load', function() {
+        const flashMessages = document.querySelectorAll('.alert-danger, .alert-warning');
+        if (flashMessages.length > 0 && downloadSelectedBtn.disabled) {
+            // Asumimos que un error significa que la descarga no se completó del todo o falló.
+            // Re-habilitamos el botón.
+            downloadSelectedBtn.innerHTML = '<i class="fas fa-download"></i> Descargar Seleccionados <span id="selectedCount">(0)</span>';
+            updateSelectedCount(); // Esto también re-evaluará el disabled basado en la selección actual.
+        }
+    });
+});
+</script>
+{% endblock %}

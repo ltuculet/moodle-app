@@ -1,59 +1,30 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Descargador Moodle UNAHUR</title>
-    <!-- Bootstrap CSS para estilos rápidos (opcional) -->
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background-color: #f8f9fa;
-        }
-        .login-container {
-            background-color: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-        .login-container h2 {
-            margin-bottom: 20px;
-            text-align: center;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <h2>Acceso a Moodle</h2>
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }}">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-        <form method="POST" action="{{ url_for('login_page') }}">
-            <div class="form-group">
-                <label for="username">Usuario Moodle:</label>
-                <input type="text" class="form-control" id="username" name="username" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Contraseña Moodle:</label>
-                <input type="password" class="form-control" id="password" name="password" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Ingresar</button>
-        </form>
-    </div>
+{% extends "base.html" %}
 
-    <!-- Scripts de Bootstrap (opcional) -->
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-</body>
-</html>
+{% block title %}Iniciar Sesión - Descargador Moodle{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <h2><i class="fas fa-user-lock"></i> Acceso a Moodle</h2>
+    <p class="text-muted text-center mb-4">
+        Ingresa tus credenciales para <strong class="text-primary">{{ moodle_base_url | replace("https://", "") | replace("http://", "") }}</strong>
+    </p>
+    <form method="POST" action="{{ url_for('login_moodle') }}">
+        <div class="form-group">
+            <label for="username">Nombre de Usuario:</label>
+            <input type="text" class="form-control form-control-lg" id="username" name="username" required autofocus>
+        </div>
+        <div class="form-group">
+            <label for="password">Contraseña:</label>
+            <input type="password" class="form-control form-control-lg" id="password" name="password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block mt-4">
+            <i class="fas fa-sign-in-alt"></i> Ingresar
+        </button>
+    </form>
+    <div class="text-center mt-3">
+        <a href="{{ url_for('reset_config') }}" class="btn btn-link btn-sm">
+            <i class="fas fa-cog"></i> Cambiar URL de Moodle
+        </a>
+    </div>
+</div>
+{% endblock %}

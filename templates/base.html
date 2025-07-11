@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Descargador Moodle{% endblock %}</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f8f9fa; /* Gris claro */
+            color: #343a40; /* Gris oscuro */
+            padding-top: 70px; /* Espacio para la barra de navegación fija */
+        }
+        .navbar {
+            background-color: #0056b3; /* Azul oscuro UNAHUR (aproximado) */
+        }
+        .navbar-brand, .nav-link {
+            color: #ffffff !important; /* Blanco */
+        }
+        .navbar-brand:hover, .nav-link:hover {
+            color: #e9ecef !important; /* Blanco más suave */
+        }
+        .container {
+            margin-top: 20px;
+            background-color: #ffffff; /* Blanco */
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+        .alert { margin-top: 15px; }
+        .btn-primary {
+            background-color: #007bff; /* Azul primario Bootstrap */
+            border-color: #007bff;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+            border-color: #0056b3;
+        }
+        .btn-danger {
+            background-color: #dc3545; /* Rojo Bootstrap */
+            border-color: #dc3545;
+        }
+        footer {
+            text-align: center;
+            padding: 20px 0;
+            margin-top: 30px;
+            color: #6c757d; /* Gris medio */
+            font-size: 0.9em;
+        }
+        /* Estilos para la página de configuración */
+        .config-container, .login-container {
+            max-width: 500px;
+            margin: auto;
+        }
+        h2 {
+            color: #0056b3;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        /* Iconos en botones */
+        .btn .fas {
+            margin-right: 5px;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('config_moodle_url') }}">
+                <i class="fas fa-cloud-download-alt"></i> Descargador Moodle
+            </a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ml-auto">
+                    {% if session.get('moodle_base_url') %}
+                        <li class="nav-item">
+                            <span class="navbar-text mr-3">
+                                Moodle: {{ session.get('moodle_base_url') | replace('https://', '') | replace('http://', '') }}
+                            </span>
+                        </li>
+                         <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('reset_config') }}" title="Cambiar URL de Moodle">
+                                <i class="fas fa-cog"></i> Cambiar URL
+                            </a>
+                        </li>
+                    {% endif %}
+                    {% if session.get('moodle_user_active') %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a>
+                        </li>
+                    {% else %}
+                        {% if session.get('moodle_base_url') %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('login_moodle') }}"><i class="fas fa-sign-in-alt"></i> Iniciar Sesión</a>
+                        </li>
+                        {% endif %}
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <main role="main" class="container-fluid" style="padding-top: 20px;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="row">
+                    <div class="col-md-8 offset-md-2">
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+        {% endwith %}
+        <div class="container actual-content-container">
+             {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <footer>
+        Descargador Moodle - Proyecto de Automatización
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

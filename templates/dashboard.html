@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Descargador Moodle UNAHUR</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f4f7f6; font-family: Arial, sans-serif; }
+        .container { margin-top: 20px; }
+        .course-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+        .course-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .document-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .document-item:last-child {
+            border-bottom: none;
+        }
+        .document-name {
+            font-size: 1em;
+            color: #555;
+        }
+        .document-type {
+            font-size: 0.8em;
+            background-color: #007bff;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+        .no-documents {
+            color: #777;
+            font-style: italic;
+        }
+        .flash-messages .alert { margin-top:15px; }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            background-color: #ffffff;
+            z-index: 1000;
+            padding: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .sticky-header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="sticky-header">
+        <div class="container">
+            <h1>Documentos de Cursos</h1>
+            <div>
+                <button id="downloadSelectedBtn" class="btn btn-success mr-2">Descargar Seleccionados</button>
+                <a href="{{ url_for('logout') }}" class="btn btn-danger">Cerrar Sesión</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <form id="downloadForm" method="POST" action="{{ url_for('handle_download') }}">
+            {% if courses_with_docs %}
+                <div class="mb-3">
+                    <input type="checkbox" id="selectAllGlobal" class="mr-1">
+                    <label for="selectAllGlobal"><strong>Seleccionar todos los documentos de todos los cursos</strong></label>
+                </div>
+
+                {% for course_name, documents in courses_with_docs %}
+                <div class="course-card">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h3 class="course-title">{{ course_name }}</h3>
+                        {% if documents %}
+                        <div>
+                            <input type="checkbox" id="selectAll-{{ loop.index }}" class="selectAllCourse mr-1" data-course-index="{{ loop.index }}">
+                            <label for="selectAll-{{ loop.index }}">Seleccionar todo en este curso</label>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    {% if documents %}
+                        <ul class="list-unstyled">
+                            {% for doc in documents %}
+                            <li class="document-item course-{{ loop.parent.loop.index }}-doc">
+                                <div>
+                                    <input type="checkbox" name="selected_docs" value="{{ doc.url }}|{{ doc.name }}|{{ doc.type }}|{{ course_name }}" class="doc-checkbox"
+                                           data-course-index="{{ loop.parent.loop.index }}">
+                                    <span class="document-name ml-2">{{ doc.name }}</span>
+                                </div>
+                                <span class="document-type">{{ doc.type }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="no-documents">No se encontraron documentos en este curso.</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% elif courses_with_docs is none %}
+                <p>Error al cargar cursos. Intenta recargar la página o iniciar sesión nuevamente.</p>
+            {% else %}
+                <p>No hay cursos o documentos para mostrar.</p>
+            {% endif %}
+        </form>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
+            const downloadForm = document.getElementById('downloadForm');
+            const selectAllGlobalCheckbox = document.getElementById('selectAllGlobal');
+            const courseSelectAllCheckboxes = document.querySelectorAll('.selectAllCourse');
+            const individualDocCheckboxes = document.querySelectorAll('.doc-checkbox');
+
+            if (downloadSelectedBtn) {
+                downloadSelectedBtn.addEventListener('click', function () {
+                    // Validar que al menos un checkbox esté seleccionado
+                    const anySelected = Array.from(individualDocCheckboxes).some(cb => cb.checked);
+                    if (!anySelected) {
+                        alert('Por favor, selecciona al menos un documento para descargar.');
+                        return;
+                    }
+                    if (downloadForm) {
+                        downloadForm.submit();
+                    }
+                });
+            }
+
+            if (selectAllGlobalCheckbox) {
+                selectAllGlobalCheckbox.addEventListener('change', function() {
+                    individualDocCheckboxes.forEach(checkbox => {
+                        checkbox.checked = this.checked;
+                    });
+                    courseSelectAllCheckboxes.forEach(checkbox => {
+                        checkbox.checked = this.checked;
+                    });
+                });
+            }
+
+            courseSelectAllCheckboxes.forEach(headerCheckbox => {
+                headerCheckbox.addEventListener('change', function() {
+                    const courseIndex = this.getAttribute('data-course-index');
+                    document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`).forEach(checkbox => {
+                        checkbox.checked = this.checked;
+                    });
+                    updateGlobalSelectAll();
+                });
+            });
+
+            individualDocCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    const courseIndex = this.getAttribute('data-course-index');
+                    const courseCheckboxes = document.querySelectorAll(`.course-${courseIndex}-doc .doc-checkbox`);
+                    const courseSelectAll = document.querySelector(`.selectAllCourse[data-course-index="${courseIndex}"]`);
+
+                    if (courseSelectAll) {
+                         courseSelectAll.checked = Array.from(courseCheckboxes).every(cb => cb.checked);
+                    }
+                    updateGlobalSelectAll();
+                });
+            });
+
+            function updateGlobalSelectAll() {
+                if (selectAllGlobalCheckbox) {
+                    selectAllGlobalCheckbox.checked = Array.from(individualDocCheckboxes).every(cb => cb.checked);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

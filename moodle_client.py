@@ -3,43 +3,42 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin, urlparse
 
-# Constantes de User-Agent (podría ser configurable en el futuro)
+# Constantes de User-Agent
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
 def get_login_url(moodle_base_url):
     """Construye la URL de login a partir de la URL base de Moodle."""
     return urljoin(moodle_base_url, "login/index.php")
 
+def get_my_courses_url(moodle_base_url):
+    """Construye la URL de la página 'Mis cursos' o el dashboard."""
+    # La URL que proporcionaste es /my/courses.php, pero /my/ es más común para el dashboard general
+    # donde también suelen estar los cursos. Probaremos con /my/ primero, como estaba antes,
+    # ya que la ruta /debug_get_my_courses_page usa esta y funcionó para obtener el HTML.
+    # Si /my/ no muestra los cursos en el formato esperado, cambiaremos a /my/courses.php.
+    return urljoin(moodle_base_url, "my/")
+
+
 def login(moodle_base_url, username, password, session):
     """
     Intenta iniciar sesión en la plataforma Moodle.
     Actualiza el objeto session con las cookies si el login es exitoso.
-
-    Args:
-        moodle_base_url: La URL base del sitio Moodle (ej. "https://campus.example.com").
-        username: El nombre de usuario.
-        password: La contraseña.
-        session: Un objeto requests.Session.
-
-    Returns:
-        True si el inicio de sesión fue exitoso, False en caso contrario.
     """
     login_url = get_login_url(moodle_base_url)
     session.headers.update({'User-Agent': USER_AGENT})
 
     try:
-        # GET inicial a la página de login para obtener el logintoken
         login_page_response = session.get(login_url, timeout=10)
         login_page_response.raise_for_status()
         soup = BeautifulSoup(login_page_response.text, 'html.parser')
 
         logintoken_input = soup.find('input', {'name': 'logintoken'})
         if not logintoken_input:
-            print(f"ADVERTENCIA: No se encontró logintoken en {login_url}. Intentando sin él.")
+            print(f"CLIENT_WARN: No se encontró logintoken en {login_url}. Intentando sin él.")
             logintoken = None
         else:
             logintoken = logintoken_input['value']
-            print(f"Logintoken encontrado: {logintoken}")
+            print(f"CLIENT_DEBUG: Logintoken encontrado: {logintoken}")
 
         payload = {
             'username': username,
@@ -49,386 +48,417 @@ def login(moodle_base_url, username, password, session):
         if logintoken:
             payload['logintoken'] = logintoken
 
-        # Enviar la petición POST para iniciar sesión
         response = session.post(login_url, data=payload, timeout=10)
         response.raise_for_status()
 
-        # Verificar si el inicio de sesión fue exitoso
-        # Criterio 1: No estamos más en la página de login
-        if "login/index.php" in response.url:
+        if "login/index.php" in response.url: # Sigue en la página de login
             soup_response = BeautifulSoup(response.text, 'html.parser')
             error_message_div = soup_response.find('div', {'class': 'loginerrors'})
             if error_message_div:
                 error_text = error_message_div.get_text(strip=True)
-                print(f"Error de inicio de sesión (detectado en página): {error_text}")
+                print(f"CLIENT_ERROR: Error de inicio de sesión (detectado en página): {error_text}")
             else:
-                # Buscar errores más genéricos si loginerrors no está
-                feedback_error = soup_response.find('div', {'id': 'loginerrormessage'}) # Moodle 4.x
+                feedback_error = soup_response.find('div', {'id': 'loginerrormessage'})
                 if feedback_error:
-                     print(f"Error de inicio de sesión (feedback): {feedback_error.get_text(strip=True)}")
+                     print(f"CLIENT_ERROR: Error de inicio de sesión (feedback): {feedback_error.get_text(strip=True)}")
                 else:
-                     print("Error de inicio de sesión: credenciales incorrectas o problema desconocido (permanece en login).")
+                     print("CLIENT_ERROR: Error de inicio de sesión: credenciales incorrectas o problema desconocido (permanece en login).")
             return False
 
-        # Criterio 2: Buscar un enlace de logout o el menú de usuario en la página resultante
-        # Esto es más robusto que solo chequear la URL.
+        # Verificar sesión activa post-login
         soup_response = BeautifulSoup(response.text, 'html.parser')
-
-        # Intentar varios selectores comunes para el enlace de logout o el menú de usuario
-        # Selector para Moodle 3.x y anteriores (aproximado)
         logout_link_old = soup_response.find('a', href=lambda href: href and 'logout.php' in href)
-        # Selector para Moodle 4.x (el menú de usuario es un div con data-region="usermenu")
-        user_menu_m4 = soup_response.find('div', {'data-region': 'usermenu'})
-        # Otro indicador podría ser el nombre del usuario en algún lugar prominente
-        user_fullname_span = soup_response.find('span', class_='userfullname')
+        user_menu_m4 = soup_response.find('div', {'data-region': 'usermenu'}) # Común en Moodle 4+
+        user_fullname_span = soup_response.find('span', class_='userfullname') # Otro indicador
 
         if logout_link_old or user_menu_m4 or user_fullname_span:
-            print("Inicio de sesión exitoso.")
+            print("CLIENT_INFO: Inicio de sesión exitoso.")
             return True
         else:
-            # Si no estamos en login/index.php pero tampoco vemos indicadores de sesión exitosa
-            print("Inicio de sesión posiblemente fallido (no se encontraron indicadores claros de sesión activa post-login).")
-            # Podrías guardar response.text aquí para depurar qué página se cargó si esto ocurre.
-            # with open("debug_post_login_page.html", "w", encoding="utf-8") as f:
-            #     f.write(response.text)
-            return False
+            # Si la URL no es de login pero no hay indicadores claros, podría ser una página intermedia.
+            # El HTML que me pasaste es de /my/courses.php, no de la página inmediatamente post-login.
+            # Asumimos que si no es la página de login, el login fue "suficiente" para proceder.
+            # La validez real de la sesión se comprobará al intentar acceder a /my/ o /my/courses.php
+            print("CLIENT_WARN: No se encontraron indicadores claros de sesión activa post-login, pero no estamos en la página de login. Asumiendo éxito parcial.")
+            return True
 
     except requests.exceptions.Timeout:
-        print(f"Error de Timeout durante el inicio de sesión en {login_url}.")
+        print(f"CLIENT_ERROR: Timeout durante el inicio de sesión en {login_url}.")
         return False
     except requests.exceptions.RequestException as e:
-        print(f"Error de red o HTTP durante el inicio de sesión: {e}")
+        print(f"CLIENT_ERROR: Error de red o HTTP durante el inicio de sesión: {e}")
         return False
     except Exception as e:
-        print(f"Ocurrió un error inesperado durante el inicio de sesión: {e}")
-        # import traceback
-        # traceback.print_exc()
+        print(f"CLIENT_ERROR: Ocurrió un error inesperado durante el inicio de sesión: {e}")
         return False
-
-def get_my_courses_url(moodle_base_url):
-    """Construye la URL de la página 'Mis cursos'."""
-    return urljoin(moodle_base_url, "my/")
 
 def get_active_courses(moodle_base_url, session):
     """
     Navega a la página de listado de cursos y extrae los cursos activos.
-    IMPORTANTE: Los selectores HTML aquí son genéricos y probablemente
-    necesiten ser ajustados para una instancia específica de Moodle.
-
-    Args:
-        moodle_base_url: La URL base del sitio Moodle.
-        session: Un objeto requests.Session con una sesión de Moodle activa.
-
-    Returns:
-        Un diccionario con los nombres de los cursos como clave y sus URLs absolutas como valor,
-        o un diccionario vacío si no se encuentran cursos o hay un error.
+    Selectores ajustados según el HTML proporcionado de /my/courses.php.
     """
-    my_courses_url = get_my_courses_url(moodle_base_url)
+    # Usaremos /my/courses.php directamente ya que el HTML proporcionado es de esa URL.
+    my_courses_url = urljoin(moodle_base_url, "my/courses.php")
     courses = {}
-    print(f"CLIENT_DEBUG: Accediendo a la página de cursos en: {my_courses_url}")
+    print(f"CLIENT_DEBUG: [get_active_courses] Intentando acceder a: {my_courses_url}")
 
     try:
-        response = session.get(my_courses_url, timeout=10)
+        response = session.get(my_courses_url, timeout=20)
         response.raise_for_status()
-        # Guardar HTML para depuración de selectores (descomentar si es necesario)
-        # with open("debug_my_courses_page.html", "w", encoding="utf-8") as f:
-        #     f.write(response.text)
-        # print("CLIENT_DEBUG: HTML de 'Mis Cursos' guardado en debug_my_courses_page.html")
+        print(f"CLIENT_DEBUG: [get_active_courses] Petición a {my_courses_url} OK (Status: {response.status_code})")
+
+        # Guardar el HTML para depuración continua (opcional, puedes comentarlo después)
+        # with open("debug_my_courses_page_LATEST.html", "w", encoding="utf-8") as f_out:
+        #     f_out.write(response.text)
+        # print("CLIENT_DEBUG: [get_active_courses] HTML guardado en debug_my_courses_page_LATEST.html")
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # --- INICIO DE LÓGICA DE SELECTORES DE CURSOS (MUY PROPENSA A CAMBIOS) ---
-        # Intento 1: Selector común en Moodle 4.x para bloques de cursos en el dashboard
-        # Estos elementos suelen tener un data-courseid y un enlace dentro.
-        # Buscamos dentro de 'div[data-region="main-content-blocks"]' o similar si es posible acotar.
-        # O un selector más general primero.
+        # Selector basado en el HTML proporcionado: <li class="list-group-item course-listitem ...">
+        # El atributo data-region="course-content" también está en el <li>
+        course_list_items = soup.select('li.list-group-item.course-listitem[data-region="course-content"]')
 
-        # Selector para Moodle 4.x (tarjetas de curso en el dashboard)
-        # class="card dashboard-card" o similar, con un enlace que contiene el courseid
-        course_cards = soup.select('div[data-region="paged-content-page"] div.dashboard-card, div.card.course-item') # Combinando posibles selectores
+        print(f"CLIENT_DEBUG: [get_active_courses] Encontrados {len(course_list_items)} elementos con selector 'li.course-listitem[data-region=\"course-content\"]'")
 
-        print(f"CLIENT_DEBUG: Encontrados {len(course_cards)} elementos con selectores de tarjeta de curso.")
+        if not course_list_items:
+            # Fallback: si la URL /my/courses.php no da el formato esperado, intentemos con /my/
+            # y los selectores que teníamos antes para el dashboard general.
+            print(f"CLIENT_DEBUG: [get_active_courses] No se encontraron cursos en {my_courses_url} con el selector principal. Intentando con /my/ y selectores de dashboard.")
+            my_courses_url = urljoin(moodle_base_url, "my/") # Cambiamos a /my/
+            response = session.get(my_courses_url, timeout=20)
+            response.raise_for_status()
+            # with open("debug_my_dashboard_page.html", "w", encoding="utf-8") as f_out: # Guardar este HTML también
+            #     f_out.write(response.text)
+            # print("CLIENT_DEBUG: [get_active_courses] HTML de /my/ guardado en debug_my_dashboard_page.html")
+            soup = BeautifulSoup(response.text, 'html.parser')
 
-        if course_cards:
-            for card in course_cards:
-                link_tag = card.find('a', href=lambda href: href and "course/view.php?id=" in href)
-                if link_tag:
-                    course_url = link_tag['href']
-                    course_name_tag = card.find(['h4', 'h5', 'span'], class_=lambda c: c and ('course-title' in c or 'multiline' in c)) # Clases comunes para títulos
-                    if not course_name_tag : # Fallback si no encuentra esas clases
-                         course_name_tag = link_tag.find(['span', 'div'], recursive=False) # Texto directo dentro del enlace
+            # Reintentar con los selectores de dashboard que teníamos antes
+            # Intento 1 (Dashboard Moodle 4.x):
+            course_list_items = soup.select('div[data-region="paged-content-page"] div.dashboard-card, div.card.course-item')
+            print(f"CLIENT_DEBUG: [get_active_courses] En /my/, encontrados {len(course_list_items)} elementos con selectores de tarjeta de curso.")
+            if course_list_items:
+                 for card in course_list_items:
+                    link_tag = card.find('a', href=lambda href: href and "course/view.php?id=" in href)
+                    if link_tag:
+                        course_url_rel = link_tag['href']
+                        course_name_tag = card.find(['h4', 'h5', 'span'], class_=lambda c: c and ('course-title' in c or 'multiline' in c))
+                        if not course_name_tag : course_name_tag = link_tag.find(['span', 'div'], recursive=False)
+                        course_name = course_name_tag.get_text(strip=True) if course_name_tag else "Curso sin nombre (tarjeta)"
+                        if "course/view.php?id=" in course_url_rel and course_name:
+                            abs_course_url = urljoin(moodle_base_url, course_url_rel)
+                            courses[course_name] = abs_course_url
+                            print(f"  CLIENT_DEBUG: Curso (tarjeta /my/): '{course_name}' - URL: {abs_course_url}")
 
-                    course_name = course_name_tag.get_text(strip=True) if course_name_tag else "Curso sin nombre"
-
-                    if "course/view.php?id=" in course_url and course_name:
-                        # Asegurar URL absoluta
-                        abs_course_url = urljoin(moodle_base_url, course_url)
+            # Intento 2 (Dashboard Moodle 4.x, bloque "Course overview"):
+            if not courses:
+                course_list_items = soup.select('div[data-region="course-overview"] a[data-courseid][href*="course/view.php"]')
+                print(f"CLIENT_DEBUG: [get_active_courses] En /my/, encontrados {len(course_list_items)} elementos con selector 'course-overview'.")
+                for link_el in course_list_items:
+                    course_url_rel = link_el['href']
+                    name_span = link_el.find('span', class_='instancename')
+                    course_name = name_span.get_text(strip=True) if name_span else link_el.get_text(strip=True)
+                    if course_name and "course/view.php?id=" in course_url_rel:
+                        abs_course_url = urljoin(moodle_base_url, course_url_rel)
                         courses[course_name] = abs_course_url
-                        print(f"  CLIENT_DEBUG: Curso (tarjeta): '{course_name}' - URL: {abs_course_url}")
+                        print(f"  CLIENT_DEBUG: Curso (overview /my/): '{course_name}' - URL: {abs_course_url}")
+            # No volvemos a parsear `course_list_items` si ya se poblaron cursos.
+            # La lógica de abajo es para el formato de `li.course-listitem`
+            if courses: # Si ya encontramos cursos con los selectores de /my/, retornamos.
+                return courses
+            # Si aún no hay cursos, `course_list_items` podría ser de la página /my/courses.php si el primer intento falló
+            # pero el segundo (a /my/) también falló en encontrar `course_list_items` con los selectores de tarjeta/overview.
+            # En este caso, `course_list_items` estaría vacío y no entraría al bucle de abajo.
 
-        # Intento 2: Selectores más antiguos o alternativos si el primero falla o es incompleto
-        if not courses: # Solo si el método anterior no encontró nada
-            print("CLIENT_DEBUG: Método de tarjetas de curso no encontró nada, intentando selectores alternativos.")
-            # Este selector es de Moodle 4.x para el bloque "Course overview"
-            course_list_items = soup.select('div[data-region="course-overview"] a[data-courseid][href*="course/view.php"]')
-            print(f"CLIENT_DEBUG: Encontrados {len(course_list_items)} elementos con selector 'course-overview'.")
-            for link_el in course_list_items:
-                course_url = link_el['href']
-                # El nombre suele estar dentro de un span.instancename o directamente en el texto del enlace
-                name_span = link_el.find('span', class_='instancename')
-                course_name = name_span.get_text(strip=True) if name_span else link_el.get_text(strip=True)
+        # Procesar los `li.course-listitem` (esto es para el formato de /my/courses.php)
+        for item in course_list_items:
+            # El enlace y el nombre están en <a class="aalink coursename" href="...">
+            link_tag = item.find('a', class_='aalink coursename')
+            if link_tag and link_tag.get('href'):
+                course_url_rel = link_tag['href']
 
-                if course_name and "course/view.php?id=" in course_url:
-                    abs_course_url = urljoin(moodle_base_url, course_url)
-                    if course_name not in courses or courses[course_name] != abs_course_url : # Evitar sobrescribir si un nombre es igual pero url distinta (raro)
-                        courses[course_name] = abs_course_url
-                        print(f"  CLIENT_DEBUG: Curso (overview): '{course_name}' - URL: {abs_course_url}")
+                # Limpiar el nombre del curso de spans internos no deseados
+                # El nombre del curso es el texto directo del enlace, pero puede tener un span.sr-only
+                # y un span para el ícono de favorito.
+                course_name_text_parts = []
+                for content in link_tag.contents:
+                    if isinstance(content, str): # NavigableString
+                        cleaned_text = content.strip()
+                        if cleaned_text:
+                            course_name_text_parts.append(cleaned_text)
+                    # Podríamos ser más específicos para ignorar ciertos tags si es necesario
 
-        # Intento 3: El selector 'coursebox' más antiguo
+                course_name = " ".join(course_name_text_parts).strip()
+                if not course_name: # Fallback si lo anterior no funciona
+                    course_name = link_tag.get_text(strip=True) # Método más simple pero puede incluir "Nombre del curso"
+                    # Intentar quitar "Nombre del curso" si está al principio
+                    if course_name.startswith("Nombre del curso"):
+                        course_name = course_name.replace("Nombre del curso", "", 1).strip()
+
+
+                if "course/view.php?id=" in course_url_rel and course_name:
+                    abs_course_url = urljoin(moodle_base_url, course_url_rel)
+                    courses[course_name] = abs_course_url
+                    print(f"  CLIENT_DEBUG: Curso (lista /my/courses.php): '{course_name}' - URL: {abs_course_url}")
+                else:
+                    print(f"  CLIENT_DEBUG: Elemento de lista omitido (no parece curso válido): text='{link_tag.get_text(strip=True)}', href='{course_url_rel}'")
+            else:
+                print("  CLIENT_DEBUG: Elemento li.course-listitem no contenía a.aalink.coursename esperado.")
+
+
         if not courses:
-            print("CLIENT_DEBUG: Aún sin cursos, intentando selector 'coursebox'.")
-            coursebox_elements = soup.find_all('div', class_=lambda x: x and 'coursebox' in x and 'future' not in x and 'past' not in x)
-            print(f"CLIENT_DEBUG: Encontrados {len(coursebox_elements)} con selector 'coursebox'.")
-            for course_el in coursebox_elements:
-                title_el = course_el.find(['h3', 'h4'], class_='coursename')
-                link_el = title_el.find('a', href=True) if title_el else None
-                if not link_el: link_el = course_el.find('a', href=True) # A veces el coursebox es el enlace
-
-                if link_el and title_el:
-                    course_name = title_el.get_text(strip=True)
-                    course_url = link_el['href']
-                    if "course/view.php?id=" in course_url and course_name:
-                        abs_course_url = urljoin(moodle_base_url, course_url)
-                        courses[course_name] = abs_course_url
-                        print(f"  CLIENT_DEBUG: Curso (coursebox): '{course_name}' - URL: {abs_course_url}")
-        # --- FIN DE LÓGICA DE SELECTORES DE CURSOS ---
-
-        if not courses:
-            print("CLIENT_DEBUG: No se encontraron cursos utilizando los selectores conocidos.")
+            print("CLIENT_WARN: [get_active_courses] No se encontraron cursos después de todos los intentos y selectores.")
 
     except requests.exceptions.Timeout:
-        print(f"Error de Timeout al acceder a {my_courses_url}.")
+        print(f"CLIENT_ERROR: [get_active_courses] Timeout al acceder a {my_courses_url}")
     except requests.exceptions.RequestException as e:
-        print(f"CLIENT_DEBUG: Error de red o HTTP al acceder a la página de cursos: {e}")
-    except Exception as e:
-        print(f"CLIENT_DEBUG: Ocurrió un error inesperado al obtener los cursos: {e}")
-        # import traceback
-        # traceback.print_exc()
+        print(f"CLIENT_ERROR: [get_active_courses] Error de red/HTTP: {e}")
+    except Exception as e_general:
+        print(f"CLIENT_ERROR: [get_active_courses] Error inesperado: {e_general}")
+        import traceback
+        traceback.print_exc()
+
     return courses
 
 def get_course_documents(course_url, session, moodle_base_url):
     """
     Navega a la página de un curso y extrae enlaces a documentos.
-    IMPORTANTE: Los selectores HTML aquí son genéricos y probablemente
-    necesiten ser ajustados para una instancia específica de Moodle.
-
-    Args:
-        course_url: La URL absoluta de la página principal del curso.
-        session: Un objeto requests.Session con una sesión de Moodle activa.
-        moodle_base_url: La URL base del sitio Moodle (para resolver URLs relativas).
-
-    Returns:
-        Una lista de diccionarios, donde cada diccionario contiene:
-        {'name': nombre_del_documento, 'url': url_absoluta_del_documento, 'type': tipo_de_documento}
-        o una lista vacía si no se encuentran documentos o hay un error.
     """
     documents = []
-    doc_extensions = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt', '.zip', '.rar', '.odt', '.odp', '.ods', '.jpg', '.jpeg', '.png', '.gif', '.mp3', '.mp4', '.avi', '.mkv']
+    # Ampliada lista de extensiones
+    doc_extensions = [
+    '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt', '.zip', '.rar',
+    '.odt', '.odp', '.ods', '.rtf', '.csv',
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp',
+    '.mp3', '.wav', '.ogg', '.aac',
+    '.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm',
+    '.html', '.htm', # A veces enlaces a páginas web que son contenido
+    '.ipynb', # Jupyter notebooks
+    '.key', # Keynote
+    '.pages' # Pages
+    ]
 
-    print(f"CLIENT_DEBUG: Accediendo a la página del curso: {course_url}")
+    print(f"CLIENT_DEBUG: [get_course_documents] Accediendo a la página del curso: {course_url}")
     try:
-        response = session.get(course_url, timeout=15)
+        response = session.get(course_url, timeout=25) # Timeout un poco más largo para páginas de curso
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Guardar HTML para depuración de selectores de documentos (descomentar si es necesario)
         # course_id_match = re.search(r'id=(\d+)', course_url)
-        # course_id = course_id_match.group(1) if course_id_match else "unknown_course"
-        # with open(f"debug_course_page_{course_id}.html", "w", encoding="utf-8") as f:
-        #     f.write(response.text)
-        # print(f"CLIENT_DEBUG: HTML de página de curso guardado en debug_course_page_{course_id}.html")
+        # course_id = course_id_match.group(1) if course_id_match else sanitize_filename(course_url)[:50]
+        # with open(f"debug_course_page_{course_id}.html", "w", encoding="utf-8") as f_debug_course:
+        #     f_debug_course.write(response.text)
+        # print(f"CLIENT_DEBUG: [get_course_documents] HTML de página de curso guardado en debug_course_page_{course_id}.html")
 
-        # Buscar enlaces de actividad (módulos de Moodle)
-        # Selectores comunes para módulos: 'activityinstance' o enlaces con 'mod/' en href
-        activity_links = soup.select('li.activity a.aalink[href*="/mod/"], div.activityinstance a[href*="/mod/"], a.aalink[href*="/pluginfile.php/"]')
+        # Selector principal para actividades y recursos en Moodle (secciones de tópicos, etc.)
+        # Buscamos elementos 'li' con clase 'activity' y un 'id' que empiece por 'module-'
+        # O divs con clase 'activityinstance'
+        # O elementos con data-draggroups="activity"
+        potential_elements = soup.select('li[id^="module-"].activity, div.activityinstance, [data-draggroups="activity"]')
 
-        # También buscar enlaces directos a archivos en la página del curso (menos común que estén sueltos)
-        direct_links = soup.find_all('a', href=True)
+        print(f"CLIENT_DEBUG: [get_course_documents] Encontrados {len(potential_elements)} elementos de actividad/recurso potenciales.")
 
-        all_potential_links = list(set(activity_links + direct_links)) # Usar set para eliminar duplicados de elementos 'a'
-        processed_resource_urls = set() # Para evitar procesar la misma URL de recurso/folder varias veces
+        processed_resource_urls = set() # Para evitar duplicados si un recurso es enlazado múltiples veces
 
-        print(f"CLIENT_DEBUG: Encontrados {len(all_potential_links)} enlaces potenciales en la página del curso.")
+        for element in potential_elements:
+            link_tag = element.find('a', href=True)
+            if not link_tag:
+                continue
 
-        for link_el in all_potential_links:
-            href = link_el.get('href')
+            href = link_tag.get('href')
             if not href:
                 continue
 
-            # Nombre del recurso/documento
-            instance_name_span = link_el.find('span', class_='instancename')
-            link_text = instance_name_span.get_text(strip=True) if instance_name_span else link_el.get_text(strip=True)
-            if not link_text: link_text = link_el.get('title', "Documento sin nombre")
-            link_text = link_text.strip()
-            if not link_text: link_text = "Documento sin nombre"
+            # Obtener el nombre del recurso/documento
+            # Prioridad: span.instancename dentro del enlace
+            # Seguido por: texto directo del enlace
+            # Fallback: atributo title del enlace
+            instance_name_span = link_tag.find('span', class_='instancename')
+            link_text = ""
+            if instance_name_span:
+                link_text = instance_name_span.get_text(strip=True)
 
+            if not link_text: # Si no se encontró con instancename o estaba vacío
+                # Intentar obtener todo el texto del enlace, limpiando tags internos comunes de Moodle
+                temp_link_text_parts = []
+                for content_part in link_tag.contents:
+                    if isinstance(content_part, str): # NavigableString
+                        cleaned_text_part = content_part.strip()
+                        if cleaned_text_part:
+                            temp_link_text_parts.append(cleaned_text_part)
+                    elif hasattr(content_part, 'name') and content_part.name not in ['span', 'img', 'i', 'picture']: # Evitar sr-only, etc.
+                        # Si es otro tag que no sea un simple span/icono, tomar su texto
+                        cleaned_text_part = content_part.get_text(strip=True)
+                        if cleaned_text_part:
+                             temp_link_text_parts.append(cleaned_text_part)
+
+                link_text = " ".join(temp_link_text_parts).strip()
+
+
+            if not link_text: # Si sigue vacío
+                link_text = link_tag.get('title', '').strip()
+
+            if not link_text: # Último recurso
+                link_text = "Documento sin nombre"
+
+            link_text = re.sub(r'\s{2,}', ' ', link_text) # Normalizar múltiples espacios a uno
 
             abs_link_url = urljoin(moodle_base_url, href)
 
-            # 1. Enlaces directos a documentos (por extensión en la URL del enlace)
+            # 1. Enlaces directos a documentos (por extensión en la URL del enlace <a>)
+            # Esto es para archivos que no son un "recurso" de Moodle pero están enlazados directamente.
             is_direct_document_by_ext = any(abs_link_url.lower().endswith(ext) for ext in doc_extensions)
-            if is_direct_document_by_ext:
+            if is_direct_document_by_ext and 'pluginfile.php' not in abs_link_url and '/mod/' not in abs_link_url:
                 doc_type = abs_link_url.split('.')[-1].lower()
-                if not any(d['url'] == abs_link_url for d in documents): # Evitar duplicados estrictos por URL
+                if not any(d['url'] == abs_link_url for d in documents):
                     documents.append({'name': link_text, 'url': abs_link_url, 'type': doc_type})
-                    print(f"  CLIENT_DEBUG: [Directo] '{link_text}' ({doc_type}) - {abs_link_url}")
-                continue # Ya lo procesamos
+                    print(f"  CLIENT_DEBUG: [Doc Directo] '{link_text}' ({doc_type}) @ {abs_link_url}")
+                continue
 
-            # 2. Enlaces a módulos de Moodle (resource, folder, url)
-            # Módulo "resource" (Archivo): puede ser descarga directa o página intermedia
+            # 2. Módulo "resource" (mod/resource/view.php)
             if '/resource/view.php' in href:
                 if abs_link_url in processed_resource_urls: continue
                 processed_resource_urls.add(abs_link_url)
-                print(f"  CLIENT_DEBUG: [*] Recurso Moodle: {link_text} ({abs_link_url})")
+                print(f"  CLIENT_DEBUG: [*] Recurso Moodle: '{link_text}' ({abs_link_url})")
                 try:
-                    # Acceder a la página del recurso, permitir redirecciones
-                    res_page = session.get(abs_link_url, timeout=10, allow_redirects=True)
+                    res_page = session.get(abs_link_url, timeout=15, allow_redirects=True)
                     res_page.raise_for_status()
-                    final_url = res_page.url # URL después de redirecciones
+                    final_url = res_page.url # URL después de posibles redirecciones
 
-                    # Verificar si la URL final es un archivo descargable por extensión
                     if any(final_url.lower().endswith(ext) for ext in doc_extensions):
                         doc_type = final_url.split('.')[-1].lower()
                         if not any(d['url'] == final_url for d in documents):
-                            documents.append({'name': link_text, 'url': final_url, 'type': doc_type}) # Usar link_text original
-                            print(f"    CLIENT_DEBUG: [+] (Recurso-Redir) '{link_text}' ({doc_type}) - {final_url}")
-                    else:
-                        # Si no es un archivo directo por URL, buscar en el contenido de la página del recurso
+                            documents.append({'name': link_text, 'url': final_url, 'type': doc_type})
+                            print(f"    CLIENT_DEBUG: [+] (Recurso-Redir) '{link_text}' ({doc_type}) @ {final_url}")
+                    else: # Si la URL final no tiene extensión, buscar en la página del recurso
                         res_soup = BeautifulSoup(res_page.text, 'html.parser')
-                        # Moodle a veces tiene un div.resourceworkaround o un enlace directo en el 'main'
-                        resource_main_content = res_soup.find('div', role='main')
-                        if not resource_main_content: resource_main_content = res_soup
+                        # Moodle a veces tiene un div.resourceworkaround o un enlace directo en 'div[role="main"]'
+                        main_content_div = res_soup.find('div', role='main')
+                        if not main_content_div: main_content_div = res_soup # Fallback
 
-                        found_in_page = False
-                        # Buscar un enlace que apunte a un archivo dentro de esta página de recurso
-                        for potential_doc_link in resource_main_content.find_all('a', href=True):
+                        found_in_resource_page = False
+                        for potential_doc_link in main_content_div.find_all('a', href=True):
                             p_href = potential_doc_link['href']
-                            p_abs_href = urljoin(moodle_base_url, p_href)
+                            p_abs_href = urljoin(moodle_base_url, p_href) # Asegurar que sea absoluta
                             if any(p_abs_href.lower().endswith(ext) for ext in doc_extensions):
                                 p_doc_type = p_abs_href.split('.')[-1].lower()
                                 p_name = potential_doc_link.get_text(strip=True) or link_text
                                 if not any(d['url'] == p_abs_href for d in documents):
                                     documents.append({'name': p_name, 'url': p_abs_href, 'type': p_doc_type})
-                                    print(f"    CLIENT_DEBUG: [+] (Recurso-Pág) '{p_name}' ({p_doc_type}) - {p_abs_href}")
-                                    found_in_page = True
-                                    break # Suponemos un solo archivo principal
-                        if not found_in_page:
-                             print(f"    CLIENT_DEBUG: [!] No se pudo extraer doc de pág. recurso: {abs_link_url}")
+                                    print(f"    CLIENT_DEBUG: [+] (Recurso-Pág) '{p_name}' ({p_doc_type}) @ {p_abs_href}")
+                                    found_in_resource_page = True
+                                    break
+                        if not found_in_resource_page:
+                             print(f"    CLIENT_WARN: [!] No se pudo extraer doc de pág. recurso: {abs_link_url}")
                 except requests.exceptions.RequestException as e_res:
-                    print(f"    CLIENT_DEBUG: [!] Error accediendo a recurso {abs_link_url}: {e_res}")
-                except Exception as e_detail:
-                    print(f"    CLIENT_DEBUG: [!] Error procesando detalle recurso {abs_link_url}: {e_detail}")
+                    print(f"    CLIENT_ERROR: [!] Error accediendo a recurso {abs_link_url}: {e_res}")
+                except Exception as e_detail_res:
+                    print(f"    CLIENT_ERROR: [!] Error procesando detalle recurso {abs_link_url}: {e_detail_res}")
 
-            # Módulo "folder" (Carpeta)
+            # 3. Módulo "folder" (mod/folder/view.php)
             elif '/folder/view.php' in href:
                 if abs_link_url in processed_resource_urls: continue
                 processed_resource_urls.add(abs_link_url)
-                print(f"  CLIENT_DEBUG: [*] Carpeta Moodle: {link_text} ({abs_link_url})")
+                print(f"  CLIENT_DEBUG: [*] Carpeta Moodle: '{link_text}' ({abs_link_url})")
                 try:
-                    folder_page = session.get(abs_link_url, timeout=10)
+                    folder_page = session.get(abs_link_url, timeout=15)
                     folder_page.raise_for_status()
                     folder_soup = BeautifulSoup(folder_page.text, 'html.parser')
-                    # Enlaces a archivos dentro de carpetas suelen usar pluginfile.php
+                    # Enlaces a archivos dentro de carpetas suelen usar pluginfile.php y estar en span.fp-filename
                     for file_link_el in folder_soup.select('span.fp-filename a[href*="pluginfile.php"]'):
                         f_href = file_link_el['href']
                         f_abs_href = urljoin(moodle_base_url, f_href)
                         f_name = file_link_el.get_text(strip=True)
                         if f_href and f_name:
-                            f_doc_type = f_abs_href.split('.')[-1].lower() if '.' in f_abs_href else 'archivo'
-                            # Mejorar tipo si no tiene extensión clara
-                            if f_doc_type == 'archivo' or len(f_doc_type) > 5 : # si la extensión es 'archivo' o muy larga/rara
-                                for known_ext in ['.pdf', '.doc', '.docx', '.ppt', '.pptx']: # Comunes
-                                    if known_ext.replace('.', '') in f_name.lower():
-                                        f_doc_type = known_ext.replace('.', '')
-                                        break
+                            f_doc_type = 'archivo' # Default
+                            # Intentar extraer extensión de la URL del archivo
+                            parsed_file_url = urlparse(f_abs_href)
+                            file_path_part = parsed_file_url.path
+                            if '.' in file_path_part:
+                                temp_ext = file_path_part.split('.')[-1].lower()
+                                if temp_ext in [ext.replace('.', '') for ext in doc_extensions]:
+                                    f_doc_type = temp_ext
+
                             if not any(d['url'] == f_abs_href for d in documents):
                                 documents.append({'name': f_name, 'url': f_abs_href, 'type': f_doc_type})
-                                print(f"    CLIENT_DEBUG: [+] (Carpeta) '{f_name}' ({f_doc_type}) - {f_abs_href}")
+                                print(f"    CLIENT_DEBUG: [+] (Carpeta) '{f_name}' ({f_doc_type}) @ {f_abs_href}")
                 except requests.exceptions.RequestException as e_folder:
-                    print(f"    CLIENT_DEBUG: [!] Error accediendo a carpeta {abs_link_url}: {e_folder}")
-                except Exception as e_detail:
-                    print(f"    CLIENT_DEBUG: [!] Error procesando detalle carpeta {abs_link_url}: {e_detail}")
+                    print(f"    CLIENT_ERROR: [!] Error accediendo a carpeta {abs_link_url}: {e_folder}")
+                except Exception as e_detail_folder:
+                    print(f"    CLIENT_ERROR: [!] Error procesando detalle carpeta {abs_link_url}: {e_detail_folder}")
 
-            # Enlaces directos a pluginfile.php (a veces son PDFs de tareas o foros)
-            elif '/pluginfile.php/' in href:
+            # 4. Enlaces directos a pluginfile.php (a veces tareas, foros, etc. enlazan así)
+            elif '/pluginfile.php/' in href: # Ya es una URL absoluta o relativa a la base
                 # Estos enlaces ya suelen ser descargas directas o abren en el navegador
-                # Es importante obtener el nombre del archivo de la URL si es posible, o del texto del enlace
-                # Ejemplo: .../pluginfile.php/12345/mod_resource/content/1/MiArchivo.pdf
-                filename_from_url = href.split('/')[-1] # Toma la última parte de la URL
-                # Quitar query params si los hay
-                filename_from_url = filename_from_url.split('?')[0]
-
+                # El `link_text` ya lo tenemos del `<a>` tag original.
+                # Intentar obtener una mejor extensión de la URL
+                filename_from_url = abs_link_url.split('/')[-1].split('?')[0] # Última parte, sin query params
+                doc_type = 'archivo'
                 if any(filename_from_url.lower().endswith(ext) for ext in doc_extensions):
                     doc_type = filename_from_url.split('.')[-1].lower()
-                    # El link_text del 'a' tag es probablemente más descriptivo que el nombre de archivo de la URL
-                    descriptive_name = link_text if link_text != "Documento sin nombre" else filename_from_url
-                    if not any(d['url'] == abs_link_url for d in documents):
-                        documents.append({'name': descriptive_name, 'url': abs_link_url, 'type': doc_type})
-                        print(f"  CLIENT_DEBUG: [Pluginfile Directo] '{descriptive_name}' ({doc_type}) - {abs_link_url}")
+
+                descriptive_name = link_text
+                # Si link_text es genérico y filename_from_url parece un nombre de archivo real, usarlo.
+                if link_text == "Documento sin nombre" and '.' in filename_from_url and len(filename_from_url) > 4 :
+                     descriptive_name = filename_from_url
+
+                if not any(d['url'] == abs_link_url for d in documents):
+                    documents.append({'name': descriptive_name, 'url': abs_link_url, 'type': doc_type})
+                    print(f"  CLIENT_DEBUG: [Pluginfile] '{descriptive_name}' ({doc_type}) @ {abs_link_url}")
+
+            # 5. Módulo "url" (mod/url/view.php) - enlaza a un recurso externo
+            elif '/url/view.php' in href:
+                if abs_link_url in processed_resource_urls: continue
+                processed_resource_urls.add(abs_link_url)
+                print(f"  CLIENT_DEBUG: [*] URL Externa Moodle: '{link_text}' ({abs_link_url})")
+                try:
+                    url_page_res = session.get(abs_link_url, timeout=15, allow_redirects=True)
+                    url_page_res.raise_for_status()
+                    final_external_url = url_page_res.url # URL final después de redirecciones
+
+                    if any(final_external_url.lower().endswith(ext) for ext in doc_extensions):
+                        ext_doc_type = final_external_url.split('.')[-1].lower()
+                        if not any(d['url'] == final_external_url for d in documents):
+                            documents.append({'name': link_text, 'url': final_external_url, 'type': ext_doc_type})
+                            print(f"    CLIENT_DEBUG: [+] (URL Externa) '{link_text}' ({ext_doc_type}) @ {final_external_url}")
+                    else:
+                        print(f"    CLIENT_WARN: [!] URL externa '{final_external_url}' no parece ser un doc directo.")
+                except requests.exceptions.RequestException as e_url_mod:
+                    print(f"    CLIENT_ERROR: [!] Error accediendo/resolviendo URL externa {abs_link_url}: {e_url_mod}")
+                except Exception as e_detail_url_mod:
+                     print(f"    CLIENT_ERROR: [!] Error procesando detalle URL externa {abs_link_url}: {e_detail_url_mod}")
+
 
         if not documents:
-            print(f"CLIENT_DEBUG: No se encontraron documentos con los criterios actuales en el curso.")
+            print(f"CLIENT_WARN: [get_course_documents] No se encontraron documentos con los criterios actuales en el curso.")
 
     except requests.exceptions.Timeout:
-        print(f"Error de Timeout al acceder a la página del curso {course_url}.")
+        print(f"CLIENT_ERROR: [get_course_documents] Timeout al acceder a la página del curso {course_url}.")
     except requests.exceptions.RequestException as e:
-        print(f"CLIENT_DEBUG: Error de red o HTTP al acceder a la página del curso {course_url}: {e}")
+        print(f"CLIENT_ERROR: [get_course_documents] Error de red o HTTP al acceder a {course_url}: {e}")
     except Exception as e:
-        print(f"CLIENT_DEBUG: Ocurrió un error inesperado al analizar el curso {course_url}: {e}")
-        # import traceback
-        # traceback.print_exc()
+        print(f"CLIENT_ERROR: [get_course_documents] Ocurrió un error inesperado al analizar {course_url}: {e}")
+        import traceback
+        traceback.print_exc()
     return documents
 
 def sanitize_filename(name):
-    """Sanitiza un string para ser usado como nombre de archivo o carpeta."""
     if not isinstance(name, str):
         name = str(name)
-    # Eliminar caracteres no válidos para la mayoría de los FS
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name) # Incluye caracteres de control
-    # Reducir espacios múltiples a uno solo y quitar de los extremos
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
     name = re.sub(r'\s+', ' ', name).strip()
-    # Evitar nombres reservados o problemáticos en Windows
     reserved_names = {"CON", "PRN", "AUX", "NUL",
                       "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
                       "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}
     if name.upper() in reserved_names:
         name = "_" + name + "_"
-    # Evitar que el nombre sea solo puntos o termine con punto o espacio (problemático en Windows)
-    if re.match(r'^\.+$', name): # Si es solo uno o más puntos
+    if re.match(r'^\.+$', name):
         name = "archivo_descargado"
-    name = name.rstrip('. ') # Quitar puntos o espacios al final
-    if not name: # Si después de todo queda vacío
+    name = name.rstrip('. ')
+    if not name:
         name = "archivo_descargado"
-    # Limitar longitud (opcional, pero bueno para compatibilidad)
     return name[:150]
 
-# Ejemplo de uso (para pruebas directas de este módulo, si es necesario)
 if __name__ == '__main__':
-    print("Módulo moodle_client.py (no diseñado para ejecución directa sin un caso de prueba específico)")
-    # Aquí podrías añadir código para probar funciones individualmente si lo deseas.
-    # Ejemplo:
-    # test_session = requests.Session()
-    # test_moodle_url = "URL_DE_PRUEBA_MOODLE"
-    # logged_in = login(test_moodle_url, "tu_usuario", "tu_contraseña", test_session)
-    # if logged_in:
-    #     print("Login de prueba exitoso.")
-    #     active_courses = get_active_courses(test_moodle_url, test_session)
-    #     print("Cursos activos:", active_courses)
-    #     if active_courses:
-    #         first_course_name = list(active_courses.keys())[0]
-    #         first_course_url = active_courses[first_course_name]
-    #         docs = get_course_documents(first_course_url, test_session, test_moodle_url)
-    #         print(f"Documentos en '{first_course_name}':", docs)
-    # else:
-    #     print("Login de prueba fallido.")
+    print("Módulo moodle_client.py: Contiene lógica para interactuar con Moodle.")
+    # Aquí se podrían añadir pruebas específicas si se ejecuta directamente.
     pass

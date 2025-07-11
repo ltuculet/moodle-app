@@ -313,3 +313,63 @@ if __name__ == '__main__':
     # debug=True es para desarrollo. En producción, usar un servidor WSGI como Gunicorn.
     # host='0.0.0.0' permite acceso desde la red local, '127.0.0.1' solo localmente.
     app.run(debug=True, host='127.0.0.1', port=5000)
+
+# ----- INICIO NUEVA RUTA DE DEBUG -----
+@app.route('/debug_get_my_courses_page')
+def debug_get_my_courses_page():
+    moodle_base_url = session.get('moodle_base_url')
+    if not moodle_base_url:
+        flash('URL de Moodle no configurada en la sesión.', 'danger')
+        return redirect(url_for('config_moodle_url'))
+
+    if not session.get('moodle_user_active') or 'moodle_cookies' not in session:
+        flash('No has iniciado sesión en Moodle a través de la app.', 'warning')
+        return redirect(url_for('login_moodle'))
+
+    # Recrear la sesión de requests
+    req_session = _get_moodle_session_from_flask_session() # Usa la función helper existente
+
+    if not req_session: # Si _get_moodle_session_from_flask_session devuelve None
+        flash('No se pudieron cargar las cookies de Moodle. Intenta iniciar sesión de nuevo.', 'danger')
+        return redirect(url_for('login_moodle'))
+
+    # Verificar validez de la sesión (opcional pero recomendado)
+    if not _is_moodle_session_still_valid(req_session, moodle_base_url):
+         flash('La sesión de Moodle parece haber expirado o es inválida. Por favor, re-logueate.', 'warning')
+         session.pop('moodle_user_active', None) # Limpiar para forzar re-login
+         session.pop('moodle_cookies', None)
+         return redirect(url_for('login_moodle'))
+
+    debug_my_courses_url = moodle_client.get_my_courses_url(moodle_base_url)
+    print(f"APP.PY DEBUG (RUTA /debug_get_my_courses_page): Accediendo a {debug_my_courses_url}")
+    try:
+        debug_response = req_session.get(debug_my_courses_url, timeout=20)
+        debug_response.raise_for_status()
+
+        # Guardar el HTML
+        output_filename = "debug_my_courses_page_VIA_ROUTE.html"
+        with open(output_filename, "w", encoding="utf-8") as f_debug_html:
+            f_debug_html.write(debug_response.text)
+
+        print(f"APP.PY DEBUG (RUTA /debug_get_my_courses_page): HTML guardado en {output_filename}")
+        flash(f"HTML de la página de cursos ({debug_my_courses_url}) guardado en el servidor como '{output_filename}'.", 'success')
+        # Devolver un mensaje simple, o redirigir al dashboard.
+        # Redirigir al dashboard puede ser mejor UX después de una acción de debug.
+        return redirect(url_for('dashboard'))
+
+    except requests.exceptions.Timeout:
+        msg = f"Timeout al acceder a {debug_my_courses_url}"
+        print(f"APP.PY ERROR (RUTA /debug_get_my_courses_page): {msg}")
+        flash(msg, 'danger')
+        return redirect(url_for('dashboard')) # O mostrar una página de error
+    except requests.exceptions.RequestException as e_req_debug:
+        msg = f"Error de red/HTTP al acceder a {debug_my_courses_url}: {e_req_debug}"
+        print(f"APP.PY ERROR (RUTA /debug_get_my_courses_page): {msg}")
+        flash(msg, 'danger')
+        return redirect(url_for('dashboard'))
+    except Exception as e_debug_save:
+        msg = f"Error al guardar HTML desde {debug_my_courses_url}: {e_debug_save}"
+        print(f"APP.PY ERROR (RUTA /debug_get_my_courses_page): {msg}")
+        flash(msg, 'danger')
+        return redirect(url_for('dashboard'))
+# ----- FIN NUEVA RUTA DE DEBUG -------

@@ -37,14 +37,11 @@ def config_moodle_url():
             ping = requests.get(test_login_url, timeout=7, headers={'User-Agent': moodle_client.USER_AGENT}, allow_redirects=True)
             ping.raise_for_status() # Lanza error para 4xx/5xx
 
-            # Verificar si la URL final después de redirecciones sigue siendo la esperada o razonable
-            if not ping.url.startswith(moodle_url): # Si redirige a un dominio completamente diferente
+            if not ping.url.startswith(moodle_url):
                  print(f"APP.PY WARN: URL de login redirigió de {test_login_url} a {ping.url}")
-                 # Podríamos ser más estrictos aquí
 
             if 'moodle' not in ping.text.lower() and 'username' not in ping.text.lower() and 'password' not in ping.text.lower():
                  flash(f'La página en {ping.url} no parece ser un login de Moodle. Intenta con la URL base (ej: https://campus.example.com).', 'warning')
-                 # return render_template('config_moodle.html', submitted_url=moodle_url) # Descomentar para ser más estricto
         except requests.exceptions.Timeout:
             flash(f'Timeout al intentar conectar con {moodle_url}. Verifica la URL y tu conexión.', 'danger')
             return render_template('config_moodle.html', submitted_url=moodle_url)
@@ -56,7 +53,6 @@ def config_moodle_url():
         flash(f'URL de Moodle configurada: {moodle_url}', 'info')
         return redirect(url_for('login_moodle'))
 
-    # Si ya hay una URL configurada y el usuario vuelve a '/', redirigir a login o dashboard
     if 'moodle_base_url' in session:
         if session.get('moodle_user_active'):
             return redirect(url_for('dashboard'))
@@ -79,7 +75,7 @@ def login_moodle():
             flash('Usuario y contraseña son requeridos.', 'danger')
             return render_template('login.html', moodle_base_url=moodle_base_url)
 
-        req_session = requests.Session() # Siempre crear una nueva sesión para el intento de login
+        req_session = requests.Session()
 
         if moodle_client.login(moodle_base_url, username, password, req_session):
             session['moodle_user_active'] = True
@@ -90,7 +86,6 @@ def login_moodle():
             flash('Error al iniciar sesión en Moodle. Verifica tus credenciales o la URL de Moodle.', 'danger')
             return render_template('login.html', moodle_base_url=moodle_base_url)
 
-    # Si el usuario ya está logueado en la app y tiene cookies, no debería estar aquí a menos que la URL se ingrese manualmente
     if session.get('moodle_user_active') and session.get('moodle_cookies'):
          return redirect(url_for('dashboard'))
 
@@ -115,8 +110,6 @@ def _is_moodle_session_still_valid(req_session, moodle_base_url):
         test_response = req_session.get(my_courses_test_url, timeout=7, allow_redirects=True)
         test_response.raise_for_status()
 
-        # Si la URL final es la página de login, la sesión ya no es válida.
-        # Comparamos las rutas de las URLs para ser más robustos a pequeños cambios (www, no-www, http/s)
         login_url_path = urlparse(moodle_client.get_login_url(moodle_base_url)).path
         current_url_path = urlparse(test_response.url).path
 
@@ -131,7 +124,7 @@ def _is_moodle_session_still_valid(req_session, moodle_base_url):
 @app.route('/dashboard')
 def dashboard():
     moodle_base_url = session.get('moodle_base_url')
-    if not moodle_base_url: # Si no hay URL base, no podemos hacer nada
+    if not moodle_base_url:
         flash('URL de Moodle no configurada.', 'warning')
         return redirect(url_for('config_moodle_url'))
 
@@ -150,13 +143,12 @@ def dashboard():
     print("APP.PY DEBUG: Recuperando cursos...")
     courses_data = moodle_client.get_active_courses(moodle_base_url, req_session)
 
-    # Actualizar cookies en sesión de Flask por si cambiaron durante la navegación en el cliente Moodle
     session['moodle_cookies'] = requests.utils.dict_from_cookiejar(req_session.cookies)
 
-    if courses_data is None: # Error explícito al obtener cursos
+    if courses_data is None:
         flash('Ocurrió un error al intentar recuperar los cursos desde Moodle.', 'danger')
         return render_template('dashboard.html', courses_with_docs=None, moodle_base_url=moodle_base_url, error_ocurrido=True)
-    if not courses_data: # Lista vacía
+    if not courses_data:
         flash('No se encontraron cursos activos o no se pudieron recuperar.', 'info')
         return render_template('dashboard.html', courses_with_docs=[], moodle_base_url=moodle_base_url)
 
@@ -165,12 +157,10 @@ def dashboard():
 
     for course_name, course_url in courses_data.items():
         print(f"APP.PY DEBUG: Buscando documentos en el curso: {course_name} ({course_url})")
-        # Pasamos moodle_base_url para resolver URLs relativas de documentos si es necesario
         docs_in_course = moodle_client.get_course_documents(course_url, req_session, moodle_base_url)
         all_documents_by_course[course_name] = sorted(docs_in_course, key=lambda x: x.get('name', '').lower()) if docs_in_course else []
         print(f"APP.PY DEBUG: Documentos encontrados en {course_name}: {len(all_documents_by_course[course_name])}")
 
-    # Actualizar cookies de nuevo por si get_course_documents navegó más
     session['moodle_cookies'] = requests.utils.dict_from_cookiejar(req_session.cookies)
 
     sorted_course_names = sorted(all_documents_by_course.keys())
@@ -219,7 +209,7 @@ def handle_download():
         return redirect(url_for('dashboard'))
 
     zip_buffer = io.BytesIO()
-    zip_base_folder = "MoodleDownloads" # Carpeta raíz dentro del ZIP
+    zip_base_folder = "MoodleDownloads"
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         download_count = 0
@@ -245,11 +235,10 @@ def handle_download():
                 zip_path = os.path.join(zip_base_folder, course_name_sanitized, zip_filename)
 
                 print(f"APP.PY DEBUG: Descargando para ZIP: '{doc_info['name']}' como '{zip_path}'")
-                # Usar un timeout más largo para descargas de archivos individuales
                 response = req_session.get(doc_info['url'], stream=True, timeout=30)
                 response.raise_for_status()
 
-                zf.writestr(zip_path, response.content) # Para archivos grandes, considerar iter_content por chunks
+                zf.writestr(zip_path, response.content)
                 download_count += 1
                 print(f"APP.PY DEBUG: Añadido al ZIP: {zip_path}")
 
@@ -258,7 +247,7 @@ def handle_download():
                 print(f"APP.PY ERROR: {msg}")
                 flash(msg, 'danger')
             except requests.exceptions.RequestException as e_req:
-                msg = f"Error de red/HTTP al descargar '{doc_info['name']}': {str(e_req)[:200]}" # Limitar longitud del error
+                msg = f"Error de red/HTTP al descargar '{doc_info['name']}': {str(e_req)[:200]}"
                 print(f"APP.PY ERROR: {msg}")
                 flash(msg, 'danger')
             except Exception as e_zip:
@@ -266,7 +255,7 @@ def handle_download():
                 print(f"APP.PY ERROR: {msg}")
                 flash(msg, 'danger')
 
-    session['moodle_cookies'] = requests.utils.dict_from_cookiejar(req_session.cookies) # Actualizar cookies
+    session['moodle_cookies'] = requests.utils.dict_from_cookiejar(req_session.cookies)
 
     if download_count == 0:
         flash('No se pudo descargar ningún archivo. Revisa los mensajes si los hay.', 'danger')
@@ -288,7 +277,6 @@ def handle_download():
 def logout():
     session.pop('moodle_user_active', None)
     session.pop('moodle_cookies', None)
-    # No limpiar moodle_base_url, para conveniencia del usuario si quiere volver a loguearse al mismo sitio.
     flash('Has cerrado sesión.', 'info')
     return redirect(url_for('login_moodle'))
 
@@ -306,13 +294,6 @@ def _ensure_folders_exist():
     if not os.path.exists('templates'):
         print("APP.PY INFO: Creando carpeta 'templates'...")
         os.makedirs('templates')
-
-if __name__ == '__main__':
-    _ensure_folders_exist()
-    print("APP.PY INFO: Iniciando servidor Flask...")
-    # debug=True es para desarrollo. En producción, usar un servidor WSGI como Gunicorn.
-    # host='0.0.0.0' permite acceso desde la red local, '127.0.0.1' solo localmente.
-    app.run(debug=True, host='127.0.0.1', port=5000)
 
 # ----- INICIO NUEVA RUTA DE DEBUG -----
 @app.route('/debug_get_my_courses_page')
@@ -380,62 +361,7 @@ def debug_get_my_courses_page():
         return redirect(url_for('dashboard'))
 # ----- FIN NUEVA RUTA DE DEBUG -------
 
-# ----- INICIO NUEVA RUTA DE DEBUG -----
-@app.route('/debug_get_my_courses_page')
-def debug_get_my_courses_page():
-    moodle_base_url = session.get('moodle_base_url')
-    if not moodle_base_url:
-        flash('URL de Moodle no configurada en la sesión.', 'danger')
-        return redirect(url_for('config_moodle_url'))
-
-    if not session.get('moodle_user_active') or 'moodle_cookies' not in session:
-        flash('No has iniciado sesión en Moodle a través de la app.', 'warning')
-        return redirect(url_for('login_moodle'))
-
-    # Recrear la sesión de requests
-    req_session = _get_moodle_session_from_flask_session() # Usa la función helper existente
-
-    if not req_session: # Si _get_moodle_session_from_flask_session devuelve None
-        flash('No se pudieron cargar las cookies de Moodle. Intenta iniciar sesión de nuevo.', 'danger')
-        return redirect(url_for('login_moodle'))
-
-    # Verificar validez de la sesión (opcional pero recomendado)
-    if not _is_moodle_session_still_valid(req_session, moodle_base_url):
-         flash('La sesión de Moodle parece haber expirado o es inválida. Por favor, re-logueate.', 'warning')
-         session.pop('moodle_user_active', None) # Limpiar para forzar re-login
-         session.pop('moodle_cookies', None)
-         return redirect(url_for('login_moodle'))
-
-    debug_my_courses_url = moodle_client.get_my_courses_url(moodle_base_url)
-    print(f"APP.PY DEBUG (RUTA /debug_get_my_courses_page): Accediendo a {debug_my_courses_url}")
-    try:
-        debug_response = req_session.get(debug_my_courses_url, timeout=20)
-        debug_response.raise_for_status()
-
-        # Guardar el HTML
-        output_filename = "debug_my_courses_page_VIA_ROUTE.html"
-        with open(output_filename, "w", encoding="utf-8") as f_debug_html:
-            f_debug_html.write(debug_response.text)
-
-        print(f"APP.PY DEBUG (RUTA /debug_get_my_courses_page): HTML guardado en {output_filename}")
-        flash(f"HTML de la página de cursos ({debug_my_courses_url}) guardado en el servidor como '{output_filename}'.", 'success')
-        # Devolver un mensaje simple, o redirigir al dashboard.
-        # Redirigir al dashboard puede ser mejor UX después de una acción de debug.
-        return redirect(url_for('dashboard'))
-
-    except requests.exceptions.Timeout:
-        msg = f"Timeout al acceder a {debug_my_courses_url}"
-        print(f"APP.PY ERROR (RUTA /debug_get_my_courses_page): {msg}")
-        flash(msg, 'danger')
-        return redirect(url_for('dashboard')) # O mostrar una página de error
-    except requests.exceptions.RequestException as e_req_debug:
-        msg = f"Error de red/HTTP al acceder a {debug_my_courses_url}: {e_req_debug}"
-        print(f"APP.PY ERROR (RUTA /debug_get_my_courses_page): {msg}")
-        flash(msg, 'danger')
-        return redirect(url_for('dashboard'))
-    except Exception as e_debug_save:
-        msg = f"Error al guardar HTML desde {debug_my_courses_url}: {e_debug_save}"
-        print(f"APP.PY ERROR (RUTA /debug_get_my_courses_page): {msg}")
-        flash(msg, 'danger')
-        return redirect(url_for('dashboard'))
-# ----- FIN NUEVA RUTA DE DEBUG -------
+if __name__ == '__main__':
+    _ensure_folders_exist()
+    print("APP.PY INFO: Iniciando servidor Flask...")
+    app.run(debug=True, host='127.0.0.1', port=5000)

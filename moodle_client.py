@@ -70,8 +70,8 @@ def login(moodle_base_url, username, password, session):
             print("CLIENT_INFO: Inicio de sesión exitoso.")
             return True
         else:
-            print("CLIENT_WARN: Inicio de sesión posiblemente fallido (no se encontraron indicadores claros de sesión activa post-login).")
-            return False
+            print("CLIENT_WARN: No se encontraron indicadores claros de sesión activa post-login, pero no estamos en la página de login. Asumiendo éxito parcial.")
+            return True
 
     except requests.exceptions.Timeout:
         print(f"CLIENT_ERROR: Timeout durante el inicio de sesión en {login_url}.")
@@ -85,16 +85,80 @@ def login(moodle_base_url, username, password, session):
 
 def get_active_courses(moodle_base_url, session):
     """
-    Versión mínima para depuración. No busca cursos, solo asegura que no hay errores de sintaxis.
-    La lógica real de guardado de HTML se ha movido a una ruta de debug en app.py.
+    Navega a la página de listado de cursos y extrae los cursos activos.
+    Selectores ajustados según el HTML proporcionado de /my/courses.php.
     """
-    print("CLIENT_DEBUG: [get_active_courses en moodle_client.py] - Versión mínima solo para evitar SyntaxErrors.")
-    return {} # Devuelve un diccionario vacío para que la app no falle, pero muestre el mensaje de "no cursos".
+    my_courses_url = get_my_courses_url(moodle_base_url)
+    courses = {}
+    print(f"CLIENT_DEBUG: [get_active_courses] Intentando acceder a: {my_courses_url}")
+
+    try:
+        response = session.get(my_courses_url, timeout=20)
+        response.raise_for_status()
+        print(f"CLIENT_DEBUG: [get_active_courses] Petición a {my_courses_url} OK (Status: {response.status_code})")
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Selector principal basado en el HTML proporcionado: <li class="... course-listitem ..." data-course-id="...">
+        course_list_items = soup.select('li.course-listitem[data-course-id]')
+
+        print(f"CLIENT_DEBUG: [get_active_courses] Encontrados {len(course_list_items)} elementos con selector 'li.course-listitem[data-course-id]'")
+
+        for i, item in enumerate(course_list_items):
+            print(f"CLIENT_DEBUG: Procesando item de curso LI #{i}")
+            # El enlace y el nombre están en <a class="aalink coursename" href="...">
+            link_tag = item.find('a', class_='aalink coursename', href=True)
+
+            if link_tag:
+                course_url_rel = link_tag['href']
+
+                # Extraer texto de forma robusta, ignorando spans de "sr-only"
+                text_parts = []
+                for content in link_tag.contents:
+                    if isinstance(content, str):
+                        cleaned_text = content.strip()
+                        if cleaned_text:
+                            text_parts.append(cleaned_text)
+
+                course_name = " ".join(text_parts).strip()
+
+                # Fallback si el método anterior no funcionó
+                if not course_name:
+                    full_link_text = link_tag.get_text(separator=' ', strip=True)
+                    course_name = re.sub(r'^(Nombre del curso|Course name)\\s*', '', full_link_text, flags=re.IGNORECASE).strip()
+                    course_name = course_name.split('Acciones para curso actual')[0].strip()
+
+                print(f"  CLIENT_DEBUG: Item LI #{i} -> Nombre tentativo: '{course_name}', URL Relativa: '{course_url_rel}'")
+
+                if "course/view.php?id=" in course_url_rel and course_name and len(course_name) > 2:
+                    abs_course_url = urljoin(moodle_base_url, course_url_rel)
+                    if course_name.lower() in ["nombre del curso", "course name"]:
+                        print(f"  CLIENT_WARN: Omitiendo curso con nombre genérico: {course_name}")
+                        continue
+                    courses[course_name] = abs_course_url
+                    print(f"    CLIENT_INFO: CURSO AÑADIDO: '{course_name}' -> URL: {abs_course_url}")
+                else:
+                    print(f"    CLIENT_WARN: Curso omitido. Nombre: '{course_name}', URL: '{course_url_rel}'")
+            else:
+                print(f"  CLIENT_WARN: Item LI #{i} no contenía a.aalink.coursename con href.")
+
+        if not courses:
+            print("CLIENT_WARN: [get_active_courses] No se añadieron cursos al diccionario final. Revisa los selectores y la lógica de extracción de nombre.")
+
+    except requests.exceptions.Timeout:
+        print(f"CLIENT_ERROR: [get_active_courses] Timeout al acceder a {my_courses_url}")
+    except requests.exceptions.RequestException as e:
+        print(f"CLIENT_ERROR: [get_active_courses] Error de red/HTTP: {e}")
+    except Exception as e_general:
+        print(f"CLIENT_ERROR: [get_active_courses] Error inesperado: {e_general}")
+        import traceback
+        traceback.print_exc()
+
+    return courses
 
 def get_course_documents(course_url, session, moodle_base_url):
     """
     Navega a la página de un curso y extrae enlaces a documentos.
-    (Esta función mantiene su lógica original, pero dependerá de que get_active_courses funcione primero)
     """
     documents = []
     doc_extensions = [

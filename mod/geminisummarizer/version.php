@@ -22,9 +22,9 @@ $plugin->dependencies = [
 ];
 
 $plugin->supported = [
-    'moodle_403' => true,
-    'moodle_404' => true,
-    'moodle_500' => true,
+    (object)['release' => '4.3', 'tested' => false],
+    (object)['release' => '4.4', 'tested' => false],
+    (object)['release' => '5.0', 'tested' => true],
 ];
 
 $plugin->capabilities = [

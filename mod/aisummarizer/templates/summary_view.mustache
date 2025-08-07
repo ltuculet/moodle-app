@@ -1,0 +1,51 @@
+{{!
+    This template is for the main view of the AI Summarizer activity.
+    It displays the file upload form and the area for the generated summary.
+}}
+{{< mod_aisummarizer/summary_view_data }}
+<div id="aisummarizer-container-{{ uniqid }}" class="aisummarizer-container" data-contextid="{{ contextid }}">
+
+    {{#can_submit}}
+    <div class="card card-body bg-light mb-4">
+        <h4 class="card-title">{{#str}}uploaddocument, mod_aisummarizer{{/str}}</h4>
+        <p class="card-text text-muted">{{#str}}uploaddocument_help, mod_aisummarizer{{/str}}</p>
+        <div id="file-upload-area-{{ uniqid }}">
+            {{! The file manager will be rendered here via JavaScript }}
+        </div>
+        <button id="generate-summary-btn-{{ uniqid }}" class="btn btn-primary mt-3" disabled>
+            {{#str}}submitforsummarization, mod_aisummarizer{{/str}}
+        </button>
+    </div>
+    {{/can_submit}}
+
+    <div id="summary-display-area-{{ uniqid }}" class="mt-4" aria-live="polite">
+        <div id="loading-spinner-{{ uniqid }}" class="d-none text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">{{#str}}pleasewait, mod_aisummarizer{{/str}}</span>
+            </div>
+            <p>{{#str}}pleasewait, mod_aisummarizer{{/str}}</p>
+        </div>
+        <div id="summary-content-{{ uniqid }}" class="d-none">
+            <h3>{{#str}}summary, mod_aisummarizer{{/str}}</h3>
+            <div class="card">
+                <div class="card-body">
+                    {{! The summary text will be injected here }}
+                </div>
+            </div>
+        </div>
+        <div id="error-message-{{ uniqid }}" class="d-none alert alert-danger">
+            {{! Error messages will be injected here }}
+        </div>
+    </div>
+
+    {{#can_view_all}}
+        {{! Placeholder for teacher's view of all summaries }}
+    {{/can_view_all}}
+
+</div>
+
+{{#js}}
+require(['mod_aisummarizer/summarizer'], function(Summarizer) {
+    Summarizer.init('#aisummarizer-container-{{ uniqid }}');
+});
+{{/js}}

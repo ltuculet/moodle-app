@@ -1,0 +1,65 @@
+{{!
+    This template is for the main view of the Gemini Summarizer activity.
+    It dynamically displays either a Google connect button or the file upload form.
+}}
+<div id="geminisummarizer-container-{{ uniqid }}" class="geminisummarizer-container" data-contextid="{{ contextid }}" data-cmid="{{ cmid }}">
+
+    {{^hastoken}}
+        <div class="card card-body bg-light text-center p-4">
+            <h4 class="card-title">{{#str}}connectgoogle, mod_geminisummarizer{{/str}}</h4>
+            <p class="card-text text-muted">{{#str}}connectgoogle_help, mod_geminisummarizer{{/str}}</p>
+            <div class="mt-3">
+                <a href="{{{authurl}}}" class="btn btn-primary btn-lg">
+                    <i class="fa fa-google"></i> {{#str}}connectgoogle, mod_geminisummarizer{{/str}}
+                </a>
+            </div>
+        </div>
+    {{/hastoken}}
+
+    {{#hastoken}}
+        {{#cansubmit}}
+            <div class="card card-body bg-light mb-4">
+                <h4 class="card-title">{{#str}}uploaddocument, mod_geminisummarizer{{/str}}</h4>
+                <p class="card-text text-muted">{{#str}}uploaddocument_help, mod_geminisummarizer{{/str}}</p>
+                <div id="file-upload-area-{{ uniqid }}">
+                    {{! The file manager will be rendered here via JavaScript }}
+                </div>
+                <button id="generate-summary-btn-{{ uniqid }}" class="btn btn-primary mt-3" disabled>
+                    {{#str}}generatesummary, mod_geminisummarizer{{/str}}
+                </button>
+            </div>
+        {{/cansubmit}}
+
+        <div id="summary-display-area-{{ uniqid }}" class="mt-4" aria-live="polite">
+            <div id="loading-spinner-{{ uniqid }}" class="d-none text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="sr-only">{{#str}}pleasewait, mod_geminisummarizer{{/str}}</span>
+                </div>
+                <p>{{#str}}pleasewait, mod_geminisummarizer{{/str}}</p>
+            </div>
+            <div id="summary-content-{{ uniqid }}" class="d-none">
+                <h3>{{#str}}summary, mod_geminisummarizer{{/str}}</h3>
+                <div class="card">
+                    <div class="card-body">
+                        {{! The summary text will be injected here }}
+                    </div>
+                </div>
+            </div>
+            <div id="error-message-{{ uniqid }}" class="d-none alert alert-danger">
+                {{! Error messages will be injected here }}
+            </div>
+        </div>
+    {{/hastoken}}
+
+</div>
+
+{{#js}}
+// Only initialize the summarizer JS if the user has a token and can submit.
+{{#hastoken}}
+    {{#cansubmit}}
+        require(['mod_geminisummarizer/summarizer'], function(Summarizer) {
+            Summarizer.init('#geminisummarizer-container-{{ uniqid }}');
+        });
+    {{/cansubmit}}
+{{/hastoken}}
+{{/js}}
